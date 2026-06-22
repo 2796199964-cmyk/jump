@@ -21,7 +21,7 @@ def load_templates():
     TEMPLATES['point'] = cv2.imread('point.png', cv2.IMREAD_COLOR)
     
     if TEMPLATES['top'] is None:
-        raise ValueError("top.png 加载失败")
+        raise ValueError("top.png 加载失败,请更新top.png")
     if TEMPLATES['main'] is None:
         raise ValueError("main.png 加载失败")
 
@@ -229,7 +229,7 @@ def find_farthest_point(points, center):
     return farthest_point
 
 def find_vertical_intersection(point, line_start, line_end):
-    """找到点沿着竖直方向与直线的交点"""
+    """找到 竖直投影交点"""
     line_vec = np.array(line_end) - np.array(line_start)
 
     if line_vec[0] == 0:  # 垂直线，无交点或重合
@@ -356,11 +356,11 @@ def analyze_and_mark_screen(output_dir, cycle_count, timestamp):
     top_bottom = top_loc[1] + top_h
     cv2.rectangle(marked_img, top_loc, (top_loc[0] + top_w, top_loc[1] + top_h), (0, 0, 255), 2)  # BGR(0,0,255)=红色矩形框
 
-    # 2. 定义主界面区域
+    # 2. 定义主界面区域（页码边界-5像素）
     main_ui_top = top_bottom
     main_ui_bottom = min(main_ui_top + 1300, screen_height)
-    main_ui_left = top_loc[0]
-    main_ui_right = top_loc[0] + top_w
+    main_ui_left = top_loc[0] + 5
+    main_ui_right = top_loc[0] + top_w - 5
     main_ui_center_x = (main_ui_left + main_ui_right) // 2
 
     # 绘制主界面区域
@@ -397,10 +397,10 @@ def analyze_and_mark_screen(output_dir, cycle_count, timestamp):
 
     # 标记 main 区域
     cv2.rectangle(marked_img, (main_x, main_y), (main_x + main_w, main_bottom), (0, 255, 0), 2)  # BGR(0,255,0)=绿色矩形框
-    cv2.circle(marked_img, main_center, 8, (255, 0, 0), -1)  # BGR(255,0,0)=红色圆点
+    cv2.circle(marked_img, main_center, 6, (255, 0, 0), -1)  # BGR(255,0,0)=红色大圆点 大红点
 
     # 4. 根据方向线角度确定裁剪区域和绘制方向线
-    if main_center_x > main_ui_center_x:  # 右半区
+    if main_center_x > main_ui_center_x:  # 在右半区，向左跳
         angle = -150
         line_color = (255, 0, 0)
         crop_left = main_ui_left
@@ -413,16 +413,11 @@ def analyze_and_mark_screen(output_dir, cycle_count, timestamp):
 
     crop_top = main_ui_top
     crop_bottom = main_bottom
-
-    # 确保裁剪区域有效
-    if crop_left >= crop_right or crop_top >= crop_bottom:
-        raise RuntimeError("裁剪区域无效")
-
     rad = math.radians(angle)
     
     # 计算方向线与裁剪区域的交点
     # 计算从 main_center 到裁剪区域顶部的距离
-    if angle == -150:  # 右半区，向左上
+    if angle == -150:  # 在右半区，向左跳
         # 方向线方程：x = main_center_x + t * cos(-150°), y = main_bottom + t * sin(-150°)
         # 与 crop_top 相交：y = crop_top
         t = (crop_top - main_bottom) / math.sin(rad)
@@ -516,6 +511,11 @@ def analyze_and_mark_screen(output_dir, cycle_count, timestamp):
 
         intersection = cv2.bitwise_and(contour_mask, line_mask)
         if cv2.countNonZero(intersection) > 0:
+            # 计算轮廓与方向线的所有交点，并用白色点标记
+            line_intersections = find_line_contour_intersections(cnt, line_start, line_end)
+            for pt in line_intersections:
+                cv2.circle(marked_img, pt, 6, (255, 255, 255), -1)  # BGR(255,255,255)=白色圆点
+
             special_point, point_type = find_downward_angle_or_ellipse_top(cnt, line_start, line_end)
 
             if special_point:
@@ -528,7 +528,7 @@ def analyze_and_mark_screen(output_dir, cycle_count, timestamp):
                 point_types.append(point_type)
                 contour_dict[tuple(special_point)] = cnt
 
-                cv2.circle(marked_img, special_point, 12, (0, 0, 255), -1)  # BGR(0,0,255)=红色填充圆
+                cv2.circle(marked_img, special_point, 12, (0, 0, 255), -1)  # BGR(0,0,255)=红色圆点
                 
                 # 及时清理临时 mask
                 del contour_mask
@@ -574,11 +574,20 @@ def analyze_and_mark_screen(output_dir, cycle_count, timestamp):
                             cv2.line(marked_img, right_angle_point, nearest_top_point, (255, 0, 0), 2, cv2.LINE_AA)  # BGR(255,0,0)=蓝色线段（垂直）
                             cv2.circle(marked_img, right_angle_point, 6, (255, 255, 0), -1)  # BGR(255,255,0)=黄色圆点
 
+                # 检查 intersection_point 是否在轮廓围成的范围内
+                cnt = contour_dict.get(tuple(farthest_point))
+                if cnt is not None:
+                    # 使用 pointPolygonTest 判断点是否在轮廓内部（>0 表示内部，=0 表示边上，<0 表示外部）
+                    pt = (int(intersection_point[0]), int(intersection_point[1]))
+                    in_contour = cv2.pointPolygonTest(cnt, pt, False)
+                    if in_contour < 0:
+                        # intersection_point 在轮廓外，将其设为 right_angle_point
+                        intersection_point = right_angle_point
+                        print(f"intersection_point 在轮廓外，已调整为 right_angle_point")
+
                 # 计算交点与直角点的中点作为 moved_point
-                moved_point = (
-                    (intersection_point[0] + right_angle_point[0]) // 2,
-                    (intersection_point[1] + right_angle_point[1]) // 2
-                )
+                moved_point = (right_angle_point[0], right_angle_point[1])
+                #moved_point = ((intersection_point[0] + right_angle_point[0]) // 2,(intersection_point[1] + right_angle_point[1]) // 2)
 
                 max_distance = math.sqrt(
                     (moved_point[0] - main_center[0]) ** 2 + (moved_point[1] - main_center[1]) ** 2)
@@ -704,7 +713,7 @@ def main_loop():
             # 执行点击操作
             if result.get("moved_point") is not None:
                 x = result["max_distance"]
-                click_duration = max(0, (x - 50) / 520)  # 确保非负
+                click_duration = max(0, (x - 50) / 525)  # 确保非负
                 print(f"点击持续时间: {click_duration:.3f}秒")
             else:
                 click_duration = 0.3
