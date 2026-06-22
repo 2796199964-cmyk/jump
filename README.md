@@ -40,5 +40,5 @@
 
 ### 1. 克隆仓库
 ```bash
-git clone https://github.com/your-username/WeChat-Jump-Auto.git
+git clone https://github.com/2796199964-cmyk/WeChat-Jump-Auto.git
 cd WeChat-Jump-Auto
