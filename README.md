@@ -1,4 +1,4 @@
-# 🎮 WeChat-Jump-Auto (微信跳一跳 PC 端全自动运行脚本)
+# 🎮 WeChat-Jump-Auto (微信跳一跳全自动运行脚本)
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.8+-blue?logo=python" alt="Python">
